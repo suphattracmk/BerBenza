@@ -1,1133 +1,205 @@
-<!DOCTYPE html>
-<html lang="th">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Carrier Cool Quest - เกมสำรวจความคูล ลุ้นรับรางวัล</title>
+/**
+ * ==============================================================================
+ * Project: Carrier Cool Quest Survey - Google Sheets Webhook Backend
+ * Description: ระบบรับข้อมูลแบบสอบถามและผลหมุนวงล้อรางวัล บันทึกลง Google Sheets
+ * 
+ * ตารางระบุตำแหน่งหัวคอลัมน์ (Column Headers Reference - แถวที่ 1):
+ * ------------------------------------------------------------------------------
+ * | ช่อง (Cell) | ชื่อหัวคอลัมน์ (Header Name) | รายละเอียดข้อมูลที่เก็บ                  |
+ * |-------------|-----------------------------|-----------------------------------------|
+ * | A1          | วัน-เวลาบันทึก              | วันที่และเวลาส่งข้อมูล (GMT+7)          |
+ * | B1          | ชื่อ - นามสกุล              | ชื่อและนามสกุลของผู้ร่วมกิจกรรม         |
+ * | C1          | เบอร์โทรศัพท์               | เบอร์มือถือ 10 หลัก (มี ' นำหน้าป้องกัน 0 หาย)|
+ * | D1          | จังหวัด                     | จังหวัดที่พักอาศัย                     |
+ * | E1          | กิจกรรมวันหยุดที่ชอบ         | กิจกรรมที่เลือกทำในวันหยุด               |
+ * | F1          | งานอดิเรก                   | งานอดิเรกที่เลือก (คั่นด้วยเครื่องหมายจุลภาค) |
+ * | G1          | อุณหภูมิแอร์ในฝัน           | อุณหภูมิองศาเซลเซียส เช่น 25°C          |
+ * | H1          | ของรางวัลที่ได้รับ          | ผลรางวัลที่ได้จากการหมุนวงล้อ           |
+ * | I1          | รหัสคูปอง                   | รหัสคูปองรางวัล เช่น CR-AB12-COOL        |
+ * ------------------------------------------------------------------------------
+ * Version: 3.0 (รองรับการกดรันตั้งค่าหัวตารางล่วงหน้า setupHeadersManually ได้ทันที)
+ * ==============================================================================
+ */
+
+// ชื่อแท็บของชีตที่จะบันทึกข้อมูล
+var SHEET_NAME = "Carrier_Survey_Data";
+
+// การตั้งค่าสีและสไตล์หัวตารางตามธีมแบรนด์ Carrier
+var THEME = {
+  headerBg: "#002B66",      // Carrier Navy Blue
+  headerText: "#FFFFFF",    // White
+  fontSize: 11,
+  fontFamily: "Prompt"
+};
+
+/**
+ * ------------------------------------------------------------------------------
+ * [ฟังก์ชันสำหรับกด รัน (Run) ด้วยตนเองเพื่อทดสอบหรือสร้างตารางล่วงหน้า]
+ * คุณสามารถเลือกฟังก์ชันนี้ใน Apps Script แล้วกดปุ่ม "เรียกใช้ (Run)" ได้ทันที!
+ * ------------------------------------------------------------------------------
+ */
+function setupHeadersManually() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(SHEET_NAME);
   
-  <!-- Tailwind CSS CDN -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            carrier: {
-              navy: '#002B66',
-              blue: '#0052CC',
-              sky: '#00A3E0',
-              ice: '#E6F6FD',
-              cyan: '#38BDF8',
-              accent: '#FFB800'
-            }
-          },
-          fontFamily: {
-            thai: ['Prompt', 'Inter', 'sans-serif']
-          },
-          animation: {
-            'float': 'float 3s ease-in-out infinite',
-            'pulse-glow': 'pulseGlow 2s infinite',
-            'spin-slow': 'spin 12s linear infinite'
-          },
-          keyframes: {
-            float: {
-              '0%, 100%': { transform: 'translateY(0px)' },
-              '50%': { transform: 'translateY(-10px)' }
-            },
-            pulseGlow: {
-              '0%, 100%': { opacity: 0.8, transform: 'scale(1)' },
-              '50%': { opacity: 1, transform: 'scale(1.05)' }
-            }
-          }
-        }
-      }
-    }
-  </script>
-
-  <!-- Google Fonts: Prompt & Inter -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Prompt:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
-  
-  <!-- Font Awesome Icons -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  
-  <!-- Confetti Canvas -->
-  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
-  
-  <!-- Tone.js for Web Audio Sound Effects -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
-
-  <style>
-    body {
-      font-family: 'Prompt', sans-serif;
-      user-select: none;
-      -webkit-tap-highlight-color: transparent;
-    }
-
-    /* Custom Gradient Background with cool breeze patterns */
-    .bg-carrier-mesh {
-      background-color: #002B66;
-      background-image: 
-        radial-gradient(at 10% 20%, rgba(0, 163, 224, 0.45) 0px, transparent 50%),
-        radial-gradient(at 90% 10%, rgba(56, 189, 248, 0.35) 0px, transparent 50%),
-        radial-gradient(at 50% 90%, rgba(0, 82, 204, 0.6) 0px, transparent 60%),
-        radial-gradient(at 80% 80%, rgba(255, 184, 0, 0.15) 0px, transparent 40%);
-      background-attachment: fixed;
-    }
-
-    /* Custom Glassmorphism */
-    .glass-panel {
-      background: rgba(255, 255, 255, 0.95);
-      backdrop-filter: blur(14px);
-      -webkit-backdrop-filter: blur(14px);
-      border: 1px solid rgba(255, 255, 255, 0.4);
-    }
-
-    .glass-dark {
-      background: rgba(0, 43, 102, 0.75);
-      backdrop-filter: blur(12px);
-      border: 1px solid rgba(56, 189, 248, 0.3);
-    }
-
-    /* Wheel Pointer Indicator */
-    .wheel-pointer {
-      position: absolute;
-      top: -14px;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 0;
-      height: 0;
-      border-left: 18px solid transparent;
-      border-right: 18px solid transparent;
-      border-top: 30px solid #FF3B30;
-      filter: drop-shadow(0 4px 6px rgba(0,0,0,0.3));
-      z-index: 20;
-    }
-  </style>
-</head>
-
-<body class="bg-carrier-mesh min-h-screen text-slate-800 flex flex-col justify-between overflow-x-hidden">
-
-  <header class="w-full pt-4 pb-3 px-4 sm:px-8">
-    <div class="max-w-4xl mx-auto flex items-center justify-between">
-      <div class="flex items-center space-x-3">
-        <!-- Carrier Stylized Logo Badge -->
-        <div class="bg-white px-3 py-1.5 rounded-full shadow-lg border border-sky-200 flex items-center gap-2">
-          <div class="w-8 h-8 rounded-full bg-carrier-navy flex items-center justify-center text-white font-bold text-lg italic tracking-wider shadow-inner">
-            C
-          </div>
-          <span class="font-extrabold text-carrier-navy text-lg sm:text-xl tracking-wide uppercase">Carrier</span>
-          <span class="bg-carrier-sky text-white text-xs px-2 py-0.5 rounded-full font-medium hidden sm:inline-block">Feel The Cool</span>
-        </div>
-      </div>
-
-      <!-- Quick Action Controls (Sound & Google Sheet Integration Setting) -->
-      <div class="flex items-center space-x-2">
-        <button id="soundToggleBtn" onclick="toggleSound()" class="bg-white/20 hover:bg-white/30 text-white p-2.5 rounded-full backdrop-blur transition shadow-sm" title="เปิด/ปิดเสียง">
-          <i id="soundIcon" class="fa-solid fa-volume-high"></i>
-        </button>
-        <button onclick="openSettingsModal()" class="bg-white/20 hover:bg-white/30 text-white px-3.5 py-2 rounded-full backdrop-blur text-sm font-medium flex items-center gap-2 transition shadow-sm">
-          <i class="fa-solid fa-cloud-arrow-up text-carrier-cyan"></i>
-          <span class="hidden sm:inline">เชื่อมต่อ Google Drive</span>
-        </button>
-      </div>
-    </div>
-  </header>
-
-  <main class="flex-grow flex items-center justify-center p-3 sm:p-6">
-    <div class="w-full max-w-2xl">
-
-      <!-- STEP 1: WELCOME SCREEN -->
-      <section id="step-welcome" class="glass-panel rounded-3xl p-6 sm:p-10 shadow-2xl text-center relative overflow-hidden transition-all duration-500">
-        <!-- Floating Ice and Wind Decorative Elements -->
-        <div class="absolute -top-10 -right-10 w-36 h-36 bg-carrier-sky/20 rounded-full blur-2xl pointer-events-none"></div>
-        <div class="absolute -bottom-10 -left-10 w-36 h-36 bg-carrier-blue/20 rounded-full blur-2xl pointer-events-none"></div>
-
-        <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-carrier-ice border border-carrier-sky/30 text-carrier-blue font-semibold text-xs sm:text-sm mb-4 animate-bounce">
-          <i class="fa-solid fa-snowflake text-carrier-sky"></i>
-          <span>Carrier Cool Vibe Quest 2026</span>
-        </div>
-
-        <h1 class="text-2xl sm:text-4xl font-extrabold text-carrier-navy tracking-tight leading-snug mb-3">
-          ค้นพบ <span class="text-carrier-sky underline decoration-carrier-accent decoration-wavy">สไตล์ความเย็นฉ่ำ</span> ที่ใช่คุณ!
-        </h1>
-        <p class="text-slate-600 text-sm sm:text-base max-w-md mx-auto mb-6">
-          ร่วมตอบคำถามสนุกๆ สไตล์แคเรียร์ พร้อมลุ้นหมุนวงล้อ Lucky Spin ชิงรางวัลส่วนลดล้างแอร์ & ของที่ระลึกสุดคูล!
-        </p>
-
-        <!-- Air Conditioner Visual Card -->
-        <div class="bg-gradient-to-r from-carrier-navy via-carrier-blue to-carrier-sky p-5 rounded-2xl text-white mb-8 shadow-lg relative overflow-hidden">
-          <div class="flex items-center justify-around">
-            <div class="text-left">
-              <span class="text-xs uppercase tracking-wider text-cyan-200 font-semibold block">Smart Inverter X</span>
-              <h3 class="text-lg sm:text-xl font-bold">เย็นเร็ว ประหยัดไฟ ปลอดภัยต่อสุขภาพ</h3>
-              <p class="text-xs text-sky-100 mt-1"><i class="fa-solid fa-wind mr-1"></i> ปล่อยประจุความสดชื่นเต็มพลัง</p>
-            </div>
-            <div class="text-5xl sm:text-6xl text-cyan-200 animate-float">
-              <i class="fa-solid fa-snowflake"></i>
-            </div>
-          </div>
-        </div>
-
-        <!-- Start Button -->
-        <button onclick="goToStep(2)" class="w-full sm:w-auto px-10 py-4 bg-gradient-to-r from-carrier-blue to-carrier-sky hover:from-blue-600 hover:to-sky-500 text-white font-bold text-lg rounded-2xl shadow-lg hover:shadow-cyan-500/50 hover:scale-[1.02] active:scale-95 transition duration-200 flex items-center justify-center gap-3 mx-auto">
-          <span>เริ่มเล่นเกมกันเลย!</span>
-          <i class="fa-solid fa-arrow-right"></i>
-        </button>
-
-        <div class="mt-4 flex items-center justify-center gap-4 text-xs text-slate-400">
-          <span><i class="fa-regular fa-clock mr-1"></i> ใช้เวลาเพียง 1 นาที</span>
-          <span>•</span>
-          <span><i class="fa-solid fa-gift mr-1 text-carrier-accent"></i> ลุ้นรางวัลทุกคน</span>
-        </div>
-      </section>
-
-      <!-- STEP 2: QUESTIONNAIRE (HOBBY & WEEKEND ACTIVITIES) -->
-      <section id="step-quiz" class="glass-panel rounded-3xl p-6 sm:p-8 shadow-2xl relative hidden transition-all duration-500">
-        <!-- Progress Bar -->
-        <div class="mb-6">
-          <div class="flex justify-between items-center text-xs font-semibold text-carrier-navy mb-1.5">
-            <span>ภารกิจค้นหาความชิล (ขั้นที่ 1 จาก 2)</span>
-            <span id="quizProgressText" class="text-carrier-sky">50%</span>
-          </div>
-          <div class="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
-            <div id="quizProgressBar" class="bg-gradient-to-r from-carrier-blue to-carrier-sky h-2.5 rounded-full transition-all duration-500" style="width: 50%"></div>
-          </div>
-        </div>
-
-        <div class="space-y-6">
-          <!-- Question 1: Weekend Chill Activity -->
-          <div>
-            <label class="block text-sm sm:text-base font-bold text-carrier-navy mb-2.5">
-              <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-carrier-sky text-white text-xs mr-2">1</span>
-              ในวันหยุดพักผ่อน กิจกรรมที่คุณชอบทำมากที่สุดคืออะไร? <span class="text-rose-500">*</span>
-            </label>
-            <div class="grid grid-cols-2 gap-2.5 sm:gap-3" id="weekendOptionsContainer">
-              <!-- Options rendered via JS or standard clickable cards -->
-              <div onclick="selectWeekend('เปิดแอร์ฉ่ำๆ ดูซีรีส์/หนังมาราธอน', this)" class="weekend-card border-2 border-slate-200 hover:border-carrier-sky rounded-2xl p-3 sm:p-4 text-left cursor-pointer transition flex flex-col justify-between bg-white shadow-sm hover:shadow">
-                <div class="text-2xl text-carrier-sky mb-2"><i class="fa-solid fa-tv"></i></div>
-                <div>
-                  <h4 class="font-bold text-xs sm:text-sm text-slate-800">นอนดูซีรีส์/ภาพยนตร์</h4>
-                  <p class="text-[11px] text-slate-500">เปิดแอร์ Carrier เย็นชื่นใจ พักร่างเต็มที่</p>
-                </div>
-              </div>
-
-              <div onclick="selectWeekend('เล่นเกม PC / คอนโซลทั้งวัน', this)" class="weekend-card border-2 border-slate-200 hover:border-carrier-sky rounded-2xl p-3 sm:p-4 text-left cursor-pointer transition flex flex-col justify-between bg-white shadow-sm hover:shadow">
-                <div class="text-2xl text-carrier-blue mb-2"><i class="fa-solid fa-gamepad"></i></div>
-                <div>
-                  <h4 class="font-bold text-xs sm:text-sm text-slate-800">เล่นเกมลุยเควสต์</h4>
-                  <p class="text-[11px] text-slate-500">คอมแรงแอร์ต้องเย็น บรรยากาศเกมเมอร์</p>
-                </div>
-              </div>
-
-              <div onclick="selectWeekend('ทำอาหาร / อบขนม / ชงกาแฟดื่มชิลๆ', this)" class="weekend-card border-2 border-slate-200 hover:border-carrier-sky rounded-2xl p-3 sm:p-4 text-left cursor-pointer transition flex flex-col justify-between bg-white shadow-sm hover:shadow">
-                <div class="text-2xl text-amber-500 mb-2"><i class="fa-solid fa-mug-hot"></i></div>
-                <div>
-                  <h4 class="font-bold text-xs sm:text-sm text-slate-800">ทำอาหาร / คาเฟ่ที่บ้าน</h4>
-                  <p class="text-[11px] text-slate-500">สร้างโฮมคาเฟ่หอมกรุ่น แอร์สะอาดสดชื่น</p>
-                </div>
-              </div>
-
-              <div onclick="selectWeekend('นอนงีบพักผ่อน ฟังเพลงเบาๆ อ่านหนังสือ', this)" class="weekend-card border-2 border-slate-200 hover:border-carrier-sky rounded-2xl p-3 sm:p-4 text-left cursor-pointer transition flex flex-col justify-between bg-white shadow-sm hover:shadow">
-                <div class="text-2xl text-emerald-500 mb-2"><i class="fa-solid fa-book-open"></i></div>
-                <div>
-                  <h4 class="font-bold text-xs sm:text-sm text-slate-800">อ่านหนังสือ / หลับพักผ่อน</h4>
-                  <p class="text-[11px] text-slate-500">แอร์เงียบสนิท หลับสบายไร้เสียงรบกวน</p>
-                </div>
-              </div>
-            </div>
-            <input type="hidden" id="selectedWeekend" value="">
-          </div>
-
-          <!-- Question 2: Hobbies (Multiple Choice or Tag Selection) -->
-          <div>
-            <label class="block text-sm sm:text-base font-bold text-carrier-navy mb-2.5">
-              <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-carrier-sky text-white text-xs mr-2">2</span>
-              งานอดิเรกสุดโปรดของคุณ (เลือกได้มากกว่า 1 ข้อ) <span class="text-rose-500">*</span>
-            </label>
-            <div class="flex flex-wrap gap-2" id="hobbiesContainer">
-              <button type="button" onclick="toggleHobby('ออกกำลังกาย / โยคะ', this)" class="hobby-pill px-3.5 py-2 rounded-xl text-xs sm:text-sm border border-slate-200 bg-white hover:bg-carrier-ice text-slate-700 font-medium transition flex items-center gap-1.5 shadow-sm">
-                <i class="fa-solid fa-person-running text-carrier-sky"></i> ออกกำลังกาย / โยคะ
-              </button>
-              <button type="button" onclick="toggleHobby('ฟังเพลง / คอนเสิร์ต', this)" class="hobby-pill px-3.5 py-2 rounded-xl text-xs sm:text-sm border border-slate-200 bg-white hover:bg-carrier-ice text-slate-700 font-medium transition flex items-center gap-1.5 shadow-sm">
-                <i class="fa-solid fa-headphones text-carrier-blue"></i> ฟังเพลง / พอดแคสต์
-              </button>
-              <button type="button" onclick="toggleHobby('แต่งบ้าน / ปลูกต้นไม้', this)" class="hobby-pill px-3.5 py-2 rounded-xl text-xs sm:text-sm border border-slate-200 bg-white hover:bg-carrier-ice text-slate-700 font-medium transition flex items-center gap-1.5 shadow-sm">
-                <i class="fa-solid fa-seedling text-emerald-500"></i> แต่งบ้าน / ต้นไม้
-              </button>
-              <button type="button" onclick="toggleHobby('เลี้ยงสัตว์เลี้ยง (หมา/แมว)', this)" class="hobby-pill px-3.5 py-2 rounded-xl text-xs sm:text-sm border border-slate-200 bg-white hover:bg-carrier-ice text-slate-700 font-medium transition flex items-center gap-1.5 shadow-sm">
-                <i class="fa-solid fa-paw text-amber-600"></i> เลี้ยงน้องหมา/น้องแมว
-              </button>
-              <button type="button" onclick="toggleHobby('ท่องเที่ยว / กางเต็นท์', this)" class="hobby-pill px-3.5 py-2 rounded-xl text-xs sm:text-sm border border-slate-200 bg-white hover:bg-carrier-ice text-slate-700 font-medium transition flex items-center gap-1.5 shadow-sm">
-                <i class="fa-solid fa-compass text-rose-500"></i> เที่ยว / แคมป์ปิ้ง
-              </button>
-              <button type="button" onclick="toggleHobby('ช้อปปิ้งออนไลน์ / ไถฟีด', this)" class="hobby-pill px-3.5 py-2 rounded-xl text-xs sm:text-sm border border-slate-200 bg-white hover:bg-carrier-ice text-slate-700 font-medium transition flex items-center gap-1.5 shadow-sm">
-                <i class="fa-solid fa-cart-shopping text-purple-500"></i> ช้อปปิ้งออนไลน์
-              </button>
-            </div>
-            <div class="mt-2">
-              <input type="text" id="customHobbyInput" placeholder="หรืองานอดิเรกอื่นๆ พิมพ์ระบุได้ที่นี่..." class="w-full px-3.5 py-2 text-xs sm:text-sm rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-carrier-sky/50 bg-white">
-            </div>
-          </div>
-
-          <!-- Question 3: Ideal Room Temperature Interactive Slider -->
-          <div class="bg-carrier-ice/60 p-4 rounded-2xl border border-carrier-sky/20">
-            <div class="flex justify-between items-center mb-1">
-              <span class="text-xs sm:text-sm font-bold text-carrier-navy">
-                <i class="fa-solid fa-temperature-half text-carrier-sky mr-1"></i> อุณหภูมิแอร์ในฝันของคุณ:
-              </span>
-              <span id="tempDisplay" class="font-extrabold text-carrier-blue text-base">25 °C (เย็นสบายกำลังดี)</span>
-            </div>
-            <input type="range" id="tempSlider" min="18" max="28" value="25" oninput="updateTemp(this.value)" class="w-full accent-carrier-blue cursor-pointer">
-            <div class="flex justify-between text-[10px] text-slate-400 mt-1">
-              <span>18°C (หนาวสั่นขั้วโลก)</span>
-              <span>25°C (ประหยัดพลังงาน)</span>
-              <span>28°C (เย็นร่มรื่น)</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Navigation Buttons -->
-        <div class="flex items-center gap-3 mt-8">
-          <button onclick="goToStep(1)" class="w-1/3 py-3 rounded-xl border border-slate-300 font-semibold text-slate-600 hover:bg-slate-100 transition text-sm">
-            ย้อนกลับ
-          </button>
-          <button onclick="validateAndGoToInfo()" class="w-2/3 py-3 rounded-xl bg-gradient-to-r from-carrier-blue to-carrier-sky text-white font-bold hover:shadow-md transition text-sm flex items-center justify-center gap-2">
-            <span>ถัดไป: กรอกข้อมูลรับสิทธิ์</span>
-            <i class="fa-solid fa-arrow-right"></i>
-          </button>
-        </div>
-      </section>
-
-      <!-- STEP 3: USER CONTACT & DEMOGRAPHIC FORM -->
-      <section id="step-info" class="glass-panel rounded-3xl p-6 sm:p-8 shadow-2xl relative hidden transition-all duration-500">
-        <div class="mb-5">
-          <div class="flex justify-between items-center text-xs font-semibold text-carrier-navy mb-1.5">
-            <span>ข้อมูลสำหรับรับรางวัลและสิทธิ์ลุ้นแอร์</span>
-            <span class="text-carrier-sky">100%</span>
-          </div>
-          <div class="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
-            <div class="bg-gradient-to-r from-carrier-blue to-carrier-sky h-2.5 rounded-full w-full"></div>
-          </div>
-        </div>
-
-        <div class="text-center mb-6">
-          <div class="w-12 h-12 bg-carrier-ice text-carrier-blue rounded-full flex items-center justify-center mx-auto text-xl mb-2">
-            <i class="fa-solid fa-id-card"></i>
-          </div>
-          <h2 class="text-xl sm:text-2xl font-extrabold text-carrier-navy">กรอกข้อมูลผู้ร่วมกิจกรรม</h2>
-          <p class="text-xs text-slate-500">ข้อมูลจะถูกส่งเข้าสู่ฐานข้อมูลระบบ Carrier ผ่าน Google Drive โดยตรงอย่างปลอดภัย</p>
-        </div>
-
-        <form id="customerForm" onsubmit="event.preventDefault(); submitToLuckySpin();" class="space-y-4">
-          <!-- Name -->
-          <div>
-            <label class="block text-xs sm:text-sm font-semibold text-carrier-navy mb-1">
-              ชื่อ - นามสกุล <span class="text-rose-500">*</span>
-            </label>
-            <div class="relative">
-              <span class="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-400">
-                <i class="fa-regular fa-user"></i>
-              </span>
-              <input type="text" id="custName" required placeholder="ตัวอย่าง: สมชาย ใจเย็นสดชื่น" class="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-carrier-sky/50 text-sm">
-            </div>
-          </div>
-
-          <!-- Phone Number -->
-          <div>
-            <label class="block text-xs sm:text-sm font-semibold text-carrier-navy mb-1">
-              เบอร์โทรศัพท์ติดต่อ <span class="text-rose-500">*</span>
-            </label>
-            <div class="relative">
-              <span class="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-400">
-                <i class="fa-solid fa-phone"></i>
-              </span>
-              <input type="tel" id="custPhone" required maxlength="10" placeholder="ตัวอย่าง: 0812345678" pattern="[0-9]{10}" class="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-carrier-sky/50 text-sm">
-            </div>
-            <p class="text-[11px] text-slate-400 mt-1">* กรอกเบอร์มือถือ 10 หลักเพื่อรับ SMS ยืนยันของรางวัล</p>
-          </div>
-
-          <!-- Province Selector -->
-          <div>
-            <label class="block text-xs sm:text-sm font-semibold text-carrier-navy mb-1">
-              จังหวัดที่พักอาศัย <span class="text-rose-500">*</span>
-            </label>
-            <div class="relative">
-              <span class="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-400">
-                <i class="fa-solid fa-location-dot"></i>
-              </span>
-              <select id="custProvince" required class="w-full pl-10 pr-8 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-carrier-sky/50 text-sm bg-white appearance-none cursor-pointer">
-                <option value="" disabled selected>-- เลือกจังหวัดของคุณ --</option>
-                <!-- Populated dynamically via JS -->
-              </select>
-              <span class="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 pointer-events-none">
-                <i class="fa-solid fa-chevron-down text-xs"></i>
-              </span>
-            </div>
-          </div>
-
-          <!-- PDPA Consent Checkbox -->
-          <div class="p-3 bg-slate-50 rounded-xl border border-slate-200">
-            <label class="flex items-start gap-2.5 text-xs text-slate-600 cursor-pointer">
-              <input type="checkbox" id="custConsent" required class="mt-0.5 rounded text-carrier-blue focus:ring-carrier-sky accent-carrier-blue">
-              <span>ข้าพเจ้ายินยอมให้แคเรียร์จัดเก็บและใช้ข้อมูลเพื่อการติดต่อรับสิทธิ์ลุ้นรางวัล และรับข้อเสนอโปรโมชั่นพิเศษ</span>
-            </label>
-          </div>
-
-          <!-- Action Buttons -->
-          <div class="flex items-center gap-3 pt-3">
-            <button type="button" onclick="goToStep(2)" class="w-1/3 py-3 rounded-xl border border-slate-300 font-semibold text-slate-600 hover:bg-slate-100 transition text-sm">
-              ย้อนกลับ
-            </button>
-            <button type="submit" class="w-2/3 py-3 rounded-xl bg-gradient-to-r from-carrier-blue to-carrier-sky text-white font-bold hover:shadow-lg transition text-sm flex items-center justify-center gap-2">
-              <span>ไปหมุนวงล้อลุ้นรางวัล!</span>
-              <i class="fa-solid fa-trophy text-carrier-accent"></i>
-            </button>
-          </div>
-        </form>
-      </section>
-
-      <!-- STEP 4: LUCKY SPIN WHEEL GAME -->
-      <section id="step-wheel" class="glass-panel rounded-3xl p-6 sm:p-8 shadow-2xl relative hidden transition-all duration-500 text-center">
-        <div class="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-carrier-ice text-carrier-blue font-bold text-xs mb-3">
-          <i class="fa-solid fa-gift text-carrier-accent"></i>
-          <span>Carrier Cool Lucky Wheel</span>
-        </div>
-        <h2 class="text-xl sm:text-2xl font-extrabold text-carrier-navy mb-1">หมุนวงล้อ... รับความเย็นฉ่ำ!</h2>
-        <p class="text-xs sm:text-sm text-slate-500 mb-6">คุณได้รับสิทธิ์หมุนฟรี 1 ครั้ง ลุ้นส่วนลดและของสมนาคุณสุดพิเศษ</p>
-
-        <!-- Interactive Wheel Container -->
-        <div class="relative w-72 h-72 sm:w-80 sm:h-80 mx-auto mb-6">
-          <div class="wheel-pointer"></div>
-          
-          <canvas id="wheelCanvas" width="360" height="360" class="w-full h-full rounded-full shadow-xl border-4 border-white bg-white"></canvas>
-
-          <!-- Center Button -->
-          <button id="spinBtn" onclick="spinTheWheel()" class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-16 h-16 sm:w-18 sm:h-18 rounded-full bg-gradient-to-tr from-carrier-navy to-carrier-blue text-white font-extrabold text-sm sm:text-base border-4 border-white shadow-2xl hover:scale-105 active:scale-95 transition flex flex-col items-center justify-center z-10">
-            <i class="fa-solid fa-play text-xs text-carrier-accent mb-0.5"></i>
-            <span>SPIN</span>
-          </button>
-        </div>
-
-        <p id="spinStatusText" class="text-xs text-slate-400 font-medium">กดปุ่ม <b>SPIN</b> ตรงกลางเพื่อเริ่มต้นสุ่มรางวัล</p>
-      </section>
-
-      <!-- STEP 5: SUCCESS / THANK YOU SCREEN -->
-      <section id="step-success" class="glass-panel rounded-3xl p-6 sm:p-8 shadow-2xl relative hidden transition-all duration-500 text-center">
-        <div class="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto text-3xl mb-4 animate-bounce">
-          <i class="fa-solid fa-check"></i>
-        </div>
-
-        <h2 class="text-2xl sm:text-3xl font-extrabold text-carrier-navy mb-1">ยินดีด้วยครับ! บันทึกข้อมูลสำเร็จ</h2>
-        <p class="text-xs sm:text-sm text-slate-600 mb-6">ขอบคุณที่ร่วมเป็นส่วนหนึ่งของครอบครัวความเย็นจาก Carrier</p>
-
-        <!-- Reward Card Voucher -->
-        <div class="bg-gradient-to-br from-carrier-navy via-carrier-blue to-carrier-sky text-white p-5 rounded-2xl shadow-xl relative overflow-hidden text-left mb-6">
-          <div class="absolute -right-6 -bottom-6 text-7xl text-white/10 pointer-events-none">
-            <i class="fa-solid fa-snowflake"></i>
-          </div>
-          <div class="flex items-center justify-between border-b border-white/20 pb-3 mb-3">
-            <div>
-              <span class="text-[10px] uppercase font-bold tracking-widest text-cyan-200">Carrier Special Privilege</span>
-              <h4 id="rewardTitle" class="text-lg sm:text-xl font-extrabold text-white">E-Voucher ส่วนลดล้างแอร์ 300 บาท</h4>
-            </div>
-            <div class="text-3xl text-carrier-accent">
-              <i class="fa-solid fa-award"></i>
-            </div>
-          </div>
-
-          <div class="text-xs text-sky-100 space-y-1">
-            <p><strong>ผู้รับสิทธิ์:</strong> <span id="rewardCustomerName">-</span></p>
-            <p><strong>เบอร์โทรศัพท์:</strong> <span id="rewardCustomerPhone">-</span></p>
-            <p><strong>จังหวัด:</strong> <span id="rewardCustomerProvince">-</span></p>
-            <p><strong>รหัสคูปอง:</strong> <span id="rewardCode" class="font-mono text-amber-300 font-bold tracking-wider">CARRIER-COOL-2026</span></p>
-          </div>
-        </div>
-
-        <!-- Google Drive Transmission Status Badge -->
-        <div id="driveStatusBox" class="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-600 flex items-center justify-between mb-6">
-          <div class="flex items-center gap-2">
-            <i class="fa-solid fa-cloud-arrow-up text-carrier-sky text-base"></i>
-            <span id="driveStatusText">กำลังบันทึกข้อมูลเข้า Google Drive...</span>
-          </div>
-          <span id="driveStatusBadge" class="bg-amber-100 text-amber-800 text-[10px] px-2 py-0.5 rounded-full font-semibold">Syncing</span>
-        </div>
-
-        <!-- Action Buttons: Reset or View Local Data -->
-        <div class="flex flex-col sm:flex-row gap-3">
-          <button onclick="downloadCSVBackup()" class="w-full py-3 rounded-xl border border-carrier-blue text-carrier-blue font-semibold hover:bg-carrier-ice transition text-sm flex items-center justify-center gap-2">
-            <i class="fa-solid fa-file-csv"></i>
-            <span>ดาวน์โหลดข้อมูลชุดนี้ (CSV)</span>
-          </button>
-          <button onclick="restartGame()" class="w-full py-3 rounded-xl bg-gradient-to-r from-carrier-blue to-carrier-sky text-white font-bold hover:shadow-lg transition text-sm flex items-center justify-center gap-2">
-            <i class="fa-solid fa-rotate-right"></i>
-            <span>เล่นใหม่อีกครั้ง</span>
-          </button>
-        </div>
-      </section>
-
-    </div>
-  </main>
-
-  <!-- GOOGLE DRIVE / SHEETS WEBHOOK SETTINGS MODAL -->
-  <div id="settingsModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
-    <div class="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl relative max-h-[90vh] overflow-y-auto">
-      <button onclick="closeSettingsModal()" class="absolute top-4 right-4 text-slate-400 hover:text-slate-700 text-lg w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center">
-        <i class="fa-solid fa-xmark"></i>
-      </button>
-
-      <div class="flex items-center gap-3 mb-4">
-        <div class="w-10 h-10 rounded-xl bg-carrier-ice text-carrier-blue flex items-center justify-center text-xl">
-          <i class="fa-brands fa-google-drive"></i>
-        </div>
-        <div>
-          <h3 class="font-bold text-lg text-carrier-navy">ตั้งค่าบันทึกข้อมูลเข้า Google Drive</h3>
-          <p class="text-xs text-slate-500">เชื่อมต่อ Google Sheets ผ่าน Google Apps Script Web App</p>
-        </div>
-      </div>
-
-      <!-- Webhook URL Input -->
-      <div class="space-y-4">
-        <div>
-          <label class="block text-xs font-bold text-slate-700 mb-1">
-            Google Apps Script Web App URL
-          </label>
-          <input type="url" id="googleScriptUrl" placeholder="https://script.google.com/macros/s/.../exec" class="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-carrier-sky">
-          <p class="text-[11px] text-slate-400 mt-1">นำ URL ที่ได้จากการ Deploy Google Apps Script มาใส่ที่นี่</p>
-        </div>
-
-        <!-- Guide Dropdown / Code Snippet -->
-        <div class="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
-          <div class="flex justify-between items-center mb-2">
-            <span class="text-xs font-bold text-slate-700"><i class="fa-solid fa-code text-carrier-sky mr-1"></i> โค้ดสำหรับวางใน Google Apps Script</span>
-            <button onclick="copyScriptCode()" class="text-[11px] text-carrier-blue hover:underline font-semibold flex items-center gap-1">
-              <i class="fa-regular fa-copy"></i> <span id="copyBtnText">คัดลอกโค้ด</span>
-            </button>
-          </div>
-          <pre class="bg-slate-800 text-cyan-300 p-2.5 rounded-lg text-[10px] overflow-x-auto max-h-36 font-mono leading-relaxed" id="appsScriptSnippet">function doPost(e) {
-  try {
-    var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-    var data = JSON.parse(e.postData.contents);
-    sheet.appendRow([
-      new Date(),
-      data.name,
-      data.phone,
-      data.province,
-      data.hobbies,
-      data.weekend,
-      data.idealTemp,
-      data.prizeWon
-    ]);
-    return ContentService.createTextOutput(JSON.stringify({"result": "success"}))
-      .setMimeType(ContentService.MimeType.JSON);
-  } catch (err) {
-    return ContentService.createTextOutput(JSON.stringify({"result": "error", "error": err.message}))
-      .setMimeType(ContentService.MimeType.JSON);
+  if (!sheet) {
+    sheet = ss.insertSheet(SHEET_NAME);
   }
-}</pre>
-        </div>
+  
+  initHeaderRow(sheet);
+  Logger.log("✅ สร้างและจัดรูปแบบหัวตาราง Carrier เรียบร้อยแล้วในแท็บ: " + SHEET_NAME);
+}
 
-        <!-- Instruction Steps -->
-        <ol class="text-[11px] text-slate-600 space-y-1.5 list-decimal pl-4">
-          <li>สร้าง Google Sheet ใหม่ใน Google Drive ของคุณ</li>
-          <li>ไปที่เมนู <b>ส่วนขยาย (Extensions)</b> &gt; <b>Apps Script</b></li>
-          <li>วางโค้ดด้านบน แล้วกด <b>การทำให้ใช้งานได้ (Deploy)</b> &gt; <b>การทำให้ใช้งานได้ใหม่ (New deployment)</b></li>
-          <li>เลือกประเภท <b>เว็บแอป (Web app)</b> และตั้งค่า <i>ผู้มีสิทธิ์เข้าถึง (Who has access)</i> เป็น <b>ทุกคน (Anyone)</b></li>
-        </ol>
+/**
+ * ฟังก์ชันช่วยสร้างและจัดสไตล์หัวตาราง (A1 ถึง I1)
+ */
+function initHeaderRow(sheet) {
+  var headers = [
+    "วัน-เวลาบันทึก",       // ช่อง A1
+    "ชื่อ - นามสกุล",       // ช่อง B1
+    "เบอร์โทรศัพท์",        // ช่อง C1
+    "จังหวัด",              // ช่อง D1
+    "กิจกรรมวันหยุดที่ชอบ", // ช่อง E1
+    "งานอดิเรก",            // ช่อง F1
+    "อุณหภูมิแอร์ในฝัน",     // ช่อง G1
+    "ของรางวัลที่ได้รับ",     // ช่อง H1
+    "รหัสคูปอง"             // ช่อง I1
+  ];
 
-        <!-- Save Button -->
-        <div class="flex gap-2 pt-2">
-          <button onclick="saveGoogleScriptUrl()" class="w-full py-2.5 rounded-xl bg-carrier-navy text-white text-xs font-bold hover:bg-carrier-blue transition">
-            บันทึกการตั้งค่า
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
+  // เขียนทับแถวที่ 1 เสมอเพื่อให้มั่นใจว่าหัวตารางถูกต้องครบถ้วน
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
 
-  <div id="toastNotification" class="fixed bottom-5 right-5 z-50 max-w-sm w-full bg-carrier-navy text-white p-4 rounded-2xl shadow-2xl border border-sky-400/40 hidden transform transition-all duration-300">
-    <div class="flex items-start gap-3">
-      <div id="toastIcon" class="text-xl text-carrier-accent mt-0.5">
-        <i class="fa-solid fa-circle-check"></i>
-      </div>
-      <div class="flex-grow">
-        <h4 id="toastTitle" class="font-bold text-sm">ข้อความแจ้งเตือน</h4>
-        <p id="toastMessage" class="text-xs text-slate-200 mt-0.5"></p>
-      </div>
-      <button onclick="hideToast()" class="text-slate-400 hover:text-white text-sm">
-        <i class="fa-solid fa-xmark"></i>
-      </button>
-    </div>
-  </div>
+  // จัดแต่งสไตล์หัวตาราง Carrier Navy
+  var headerRange = sheet.getRange(1, 1, 1, headers.length);
+  headerRange.setFontWeight("bold")
+             .setBackground(THEME.headerBg)
+             .setFontColor(THEME.headerText)
+             .setFontSize(THEME.fontSize)
+             .setHorizontalAlignment("center")
+             .setVerticalAlignment("middle");
 
-  <footer class="w-full py-3 px-4 text-center text-[11px] text-white/70">
-    <p>© 2026 Carrier Thailand - ตอบแบบสอบถาม & ร่วมสนุกรับสิทธิพิเศษความเย็นระดับโลก</p>
-  </footer>
+  // ปรับความสูงแถวหัวตารางและตรึงแถวที่ 1 ไว้
+  sheet.setRowHeight(1, 40);
+  sheet.setFrozenRows(1);
 
-  <script>
-    /* ==========================================================
-       1. STATE & CONSTANTS
-       ========================================================== */
-    const THAI_PROVINCES = [
-      "กรุงเทพมหานคร", "กระบี่", "กาญจนบุรี", "กาฬสินธุ์", "กำแพงเพชร",
-      "ขอนแก่น", "จันทบุรี", "ฉะเชิงเทรา", "ชลบุรี", "ชัยนาท",
-      "ชัยภูมิ", "ชุมพร", "เชียงราย", "เชียงใหม่", "ตรัง",
-      "ตราด", "ตาก", "นครนายก", "นครปฐม", "นครพนม",
-      "นครราชสีมา", "นครศรีธรรมราช", "นครสวรรค์", "นนทบุรี", "นราธิวาส",
-      "น่าน", "บึงกาฬ", "บุรีรัมย์", "ปทุมธานี", "ประจวบคีรีขันธ์",
-      "ปราจีนบุรี", "ปัตตานี", "พระนครศรีอยุธยา", "พะเยา", "พังงา",
-      "พัทลุง", "พิจิตร", "พิษณุโลก", "เพชรบุรี", "เพชรบูรณ์",
-      "แพร่", "ภูเก็ต", "มหาสารคาม", "มุกดาหาร", "แม่ฮ่องสอน",
-      "ยโสธร", "ยะลา", "ร้อยเอ็ด", "ระนอง", "ระยอง",
-      "ราชบุรี", "ลพบุรี", "ลำปาง", "ลำพูน", "เลย",
-      "ศรีสะเกษ", "สกลนคร", "สงขลา", "สตูล", "สมุทรปราการ",
-      "สมุทรสงคราม", "สมุทรสาคร", "สระแก้ว", "สระบุรี", "สิงห์บุรี",
-      "สุโขทัย", "สุพรรณบุรี", "สุราษฎร์ธานี", "สุรินทร์", "หนองคาย",
-      "หนองบัวลำภู", "อ่างทอง", "อำนาจเจริญ", "อุดรธานี", "อุตรดิตถ์",
-      "อุทัยธานี", "อุบลราชธานี"
-    ];
+  // ปรับความกว้างคอลัมน์ให้อ่านง่าย
+  sheet.setColumnWidth(1, 170); // วันที่
+  sheet.setColumnWidth(2, 180); // ชื่อ
+  sheet.setColumnWidth(3, 140); // เบอร์โทร
+  sheet.setColumnWidth(4, 150); // จังหวัด
+  sheet.setColumnWidth(5, 220); // กิจกรรมวันหยุด
+  sheet.setColumnWidth(6, 240); // งานอดิเรก
+  sheet.setColumnWidth(7, 130); // อุณหภูมิ
+  sheet.setColumnWidth(8, 220); // ของรางวัล
+  sheet.setColumnWidth(9, 160); // รหัสคูปอง
+}
 
-    const PRIZES = [
-      { text: "ส่วนลดล้างแอร์ 300.-", color: "#002B66", textColor: "#FFFFFF" },
-      { text: "แก้วน้ำ Carrier Cool", color: "#0052CC", textColor: "#FFFFFF" },
-      { text: "สิทธิ์ชิงแอร์ Color Smart", color: "#00A3E0", textColor: "#FFFFFF" },
-      { text: "ร่มกันยูวี Carrier", color: "#FFB800", textColor: "#002B66" },
-      { text: "ส่วนลดเครื่องใหม่ 1,000.-", color: "#002B66", textColor: "#FFFFFF" },
-      { text: "หมอนผ้าห่มขนนุ่ม", color: "#38BDF8", textColor: "#002B66" }
-    ];
+/**
+ * ฟังก์ชัน doGet: ใช้สำหรับทดสอบว่า Web App ทำงานปกติหรือไม่เมื่อเปิดผ่านเบราว์เซอร์
+ */
+function doGet(e) {
+  var output = {
+    status: "online",
+    service: "Carrier Cool Quest Webhook",
+    message: "ระบบ Carrier Survey Webhook พร้อมรับข้อมูลแล้ว!",
+    timestamp: Utilities.formatDate(new Date(), "GMT+7", "dd/MM/yyyy HH:mm:ss")
+  };
+  
+  return ContentService.createTextOutput(JSON.stringify(output))
+    .setMimeType(ContentService.MimeType.JSON);
+}
 
-    let currentStep = 1;
-    let selectedWeekend = "";
-    let selectedHobbies = new Set();
-    let currentTemp = 25;
-    let soundEnabled = true;
-    let isSpinning = false;
-    let currentWheelAngle = 0;
-    let wonPrize = null;
+/**
+ * ฟังก์ชัน doPost: รับข้อมูลแบบสอบถามจากหน้าเว็บแล้วบันทึกลงชีต
+ */
+function doPost(e) {
+  // สร้าง Script Lock เพื่อป้องกันกรณีที่ลูกค้าส่งข้อมูลพร้อมกันหลายคนในเสี้ยววินาที
+  var lock = LockService.getScriptLock();
+  
+  // ให้คิวรอนานสูงสุด 20 วินาที
+  var hasLock = lock.tryLock(20000);
+  if (!hasLock) {
+    return ContentService.createTextOutput(JSON.stringify({
+      result: "error",
+      message: "Server is busy. Please try again."
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
 
-    // In-memory data store for submissions
-    let collectedEntries = [];
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName(SHEET_NAME);
 
-    /* ==========================================================
-       2. TONE.JS SOUND SYNTHESIS (NO EXTERNAL AUDIO FILES)
-       ========================================================== */
-    let synth = null;
-    function getSynth() {
-      if (!synth && window.Tone) {
-        synth = new Tone.PolySynth(Tone.Synth, {
-          oscillator: { type: "triangle" },
-          envelope: { attack: 0.005, decay: 0.1, sustain: 0.1, release: 0.5 }
-        }).toDestination();
-        synth.volume.value = -8;
-      }
-      return synth;
+    // หากยังไม่มีแท็บที่กำหนด ให้สร้างแท็บใหม่ขึ้นมาโดยอัตโนมัติ
+    if (!sheet) {
+      sheet = ss.insertSheet(SHEET_NAME);
     }
 
-    function playToneSound(type) {
-      if (!soundEnabled) return;
+    // ตรวจสอบว่ามีหัวตารางหรือยัง หากยังไม่มี ให้สร้างหัวตาราง
+    if (sheet.getLastRow() === 0) {
+      initHeaderRow(sheet);
+    }
+
+    // แยกอ่านข้อมูล JSON ที่ส่งมาจากหน้าเว็บ
+    var data = {};
+    if (e && e.postData && e.postData.contents) {
       try {
-        if (Tone.context.state !== 'running') {
-          Tone.start();
-        }
-        const s = getSynth();
-        if (type === 'click') {
-          s.triggerAttackRelease("C5", "16n");
-        } else if (type === 'select') {
-          s.triggerAttackRelease(["E5", "G5"], "16n");
-        } else if (type === 'spinTick') {
-          s.triggerAttackRelease("B5", "32n");
-        } else if (type === 'win') {
-          const now = Tone.now();
-          s.triggerAttackRelease("C5", "8n", now);
-          s.triggerAttackRelease("E5", "8n", now + 0.1);
-          s.triggerAttackRelease("G5", "8n", now + 0.2);
-          s.triggerAttackRelease("C6", "4n", now + 0.3);
-        }
-      } catch (e) {
-        console.warn("Audio trigger note: User interaction required before audio starts.", e);
-      }
-    }
-
-    function toggleSound() {
-      soundEnabled = !soundEnabled;
-      const icon = document.getElementById('soundIcon');
-      if (soundEnabled) {
-        icon.className = "fa-solid fa-volume-high";
-        showToast("เปิดเสียงแล้ว", "เปิดระบบเสียงเอฟเฟกต์ตอบสนอง", "info");
-      } else {
-        icon.className = "fa-solid fa-volume-xmark text-slate-300";
-        showToast("ปิดเสียงแล้ว", "ปิดเสียงเอฟเฟกต์เรียบร้อย", "info");
-      }
-    }
-
-    /* ==========================================================
-       3. NAVIGATION & STEP SWITCHING
-       ========================================================== */
-    function goToStep(stepNumber) {
-      playToneSound('click');
-      const steps = [1, 2, 3, 4, 5];
-      const stepMap = {
-        1: 'step-welcome',
-        2: 'step-quiz',
-        3: 'step-info',
-        4: 'step-wheel',
-        5: 'step-success'
-      };
-
-      steps.forEach(s => {
-        const el = document.getElementById(stepMap[s]);
-        if (s === stepNumber) {
-          el.classList.remove('hidden');
-          el.classList.add('block');
-        } else {
-          el.classList.add('hidden');
-          el.classList.remove('block');
-        }
-      });
-
-      currentStep = stepNumber;
-
-      if (stepNumber === 4) {
-        drawWheel();
-      }
-
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-
-    /* ==========================================================
-       4. QUIZ INTERACTIONS
-       ========================================================== */
-    function selectWeekend(activityName, cardElement) {
-      playToneSound('select');
-      selectedWeekend = activityName;
-      document.getElementById('selectedWeekend').value = activityName;
-
-      document.querySelectorAll('.weekend-card').forEach(c => {
-        c.classList.remove('border-carrier-sky', 'bg-carrier-ice/40', 'ring-2', 'ring-carrier-sky');
-      });
-
-      cardElement.classList.add('border-carrier-sky', 'bg-carrier-ice/40', 'ring-2', 'ring-carrier-sky');
-    }
-
-    function toggleHobby(hobbyName, pillElement) {
-      playToneSound('select');
-      if (selectedHobbies.has(hobbyName)) {
-        selectedHobbies.delete(hobbyName);
-        pillElement.classList.remove('bg-carrier-blue', 'text-white', 'border-carrier-blue');
-        pillElement.classList.add('bg-white', 'text-slate-700', 'border-slate-200');
-      } else {
-        selectedHobbies.add(hobbyName);
-        pillElement.classList.remove('bg-white', 'text-slate-700', 'border-slate-200');
-        pillElement.classList.add('bg-carrier-blue', 'text-white', 'border-carrier-blue');
-      }
-    }
-
-    function updateTemp(val) {
-      currentTemp = val;
-      const display = document.getElementById('tempDisplay');
-      let mood = "เย็นสบายกำลังดี";
-      if (val <= 20) mood = "หนาวฉ่ำสะใจ";
-      else if (val <= 23) mood = "เย็นเจี๊ยบสดชื่น";
-      else if (val >= 26) mood = "เย็นอ่อนโยน ประหยัดไฟ";
-      display.textContent = `${val} °C (${mood})`;
-    }
-
-    function validateAndGoToInfo() {
-      if (!selectedWeekend) {
-        showToast("กรุณาเลือกกิจกรรม", "โปรดเลือกกิจกรรมที่คุณชอบทำในวันหยุด 1 ข้อ", "error");
-        return;
-      }
-      const customHobby = document.getElementById('customHobbyInput').value.trim();
-      if (selectedHobbies.size === 0 && !customHobby) {
-        showToast("กรุณาเลือกงานอดิเรก", "โปรดเลือกงานอดิเรกอย่างน้อย 1 อย่าง หรือพิมพ์ระบุ", "error");
-        return;
-      }
-      goToStep(3);
-    }
-
-    /* ==========================================================
-       5. USER INFO FORM SUBMISSION & VALIDATION
-       ========================================================== */
-    function submitToLuckySpin() {
-      const name = document.getElementById('custName').value.trim();
-      const phone = document.getElementById('custPhone').value.trim();
-      const province = document.getElementById('custProvince').value;
-      const consent = document.getElementById('custConsent').checked;
-
-      if (!name || name.length < 2) {
-        showToast("กรอกชื่อไม่ถูกต้อง", "กรุณาระบุชื่อ-นามสกุลจริงของคุณ", "error");
-        return;
-      }
-
-      const phonePattern = /^0[0-9]{9}$/;
-      if (!phonePattern.test(phone)) {
-        showToast("เบอร์โทรศัพท์ไม่ถูกต้อง", "กรุณาระบุเบอร์โทรศัพท์ 10 หลัก (เช่น 0812345678)", "error");
-        return;
-      }
-
-      if (!province) {
-        showToast("กรุณาเลือกจังหวัด", "โปรดระบุจังหวัดที่พักอาศัยของคุณ", "error");
-        return;
-      }
-
-      if (!consent) {
-        showToast("โปรดยินยอมนโยบายข้อมูล", "กรุณาทำเครื่องหมายยินยอมเพื่อร่วมกิจกรรม", "error");
-        return;
-      }
-
-      playToneSound('click');
-      goToStep(4);
-    }
-
-    /* ==========================================================
-       6. LUCKY WHEEL ENGINE (HTML5 CANVAS)
-       ========================================================== */
-    function drawWheel() {
-      const canvas = document.getElementById('wheelCanvas');
-      if (!canvas) return;
-      const ctx = canvas.getContext('2d');
-      const width = canvas.width;
-      const height = canvas.height;
-      const centerX = width / 2;
-      const centerY = height / 2;
-      const radius = width / 2 - 10;
-      const totalSlices = PRIZES.length;
-      const sliceAngle = (2 * Math.PI) / totalSlices;
-
-      ctx.clearRect(0, 0, width, height);
-
-      // Draw slices
-      for (let i = 0; i < totalSlices; i++) {
-        const angle = currentWheelAngle + (i * sliceAngle);
-        ctx.beginPath();
-        ctx.fillStyle = PRIZES[i].color;
-        ctx.moveTo(centerX, centerY);
-        ctx.arc(centerX, centerY, radius, angle, angle + sliceAngle);
-        ctx.closePath();
-        ctx.fill();
-
-        // Slice border line
-        ctx.lineWidth = 2;
-        ctx.strokeStyle = '#FFFFFF';
-        ctx.stroke();
-
-        // Draw Prize Text
-        ctx.save();
-        ctx.translate(centerX, centerY);
-        ctx.rotate(angle + sliceAngle / 2);
-        ctx.textAlign = 'right';
-        ctx.fillStyle = PRIZES[i].textColor;
-        ctx.font = 'bold 14px Prompt';
-        ctx.fillText(PRIZES[i].text, radius - 20, 5);
-        ctx.restore();
-      }
-
-      // Outer gold ring
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
-      ctx.lineWidth = 6;
-      ctx.strokeStyle = '#FFB800';
-      ctx.stroke();
-    }
-
-    function spinTheWheel() {
-      if (isSpinning) return;
-      isSpinning = true;
-      playToneSound('click');
-
-      const spinBtn = document.getElementById('spinBtn');
-      spinBtn.disabled = true;
-      spinBtn.classList.add('opacity-50', 'cursor-not-allowed');
-      document.getElementById('spinStatusText').textContent = "กำลังหมุนวงล้อ... ขอให้โชคดี!";
-
-      // Random target index
-      const targetIndex = Math.floor(Math.random() * PRIZES.length);
-      const totalSlices = PRIZES.length;
-      const sliceAngle = (2 * Math.PI) / totalSlices;
-
-      // Pointer points downwards from top (3*PI / 2 angle)
-      const rotations = 5 + Math.floor(Math.random() * 3); // 5 to 7 full rotations
-      // Calculate target angle so pointer lands on targetIndex
-      const targetSliceCenter = (3 * Math.PI / 2) - (targetIndex * sliceAngle + sliceAngle / 2);
-      const finalAngle = currentWheelAngle + (rotations * 2 * Math.PI) + (targetSliceCenter - (currentWheelAngle % (2 * Math.PI)));
-
-      const duration = 4000;
-      const startTime = performance.now();
-      const initialAngle = currentWheelAngle;
-
-      let lastTickAngle = initialAngle;
-
-      function animateWheel(now) {
-        const elapsed = now - startTime;
-        const progress = Math.min(elapsed / duration, 1);
-        // Ease-out cubic animation
-        const ease = 1 - Math.pow(1 - progress, 3);
-        currentWheelAngle = initialAngle + (finalAngle - initialAngle) * ease;
-
-        // Sound tick effect on slice pass
-        if (Math.abs(currentWheelAngle - lastTickAngle) > sliceAngle) {
-          playToneSound('spinTick');
-          lastTickAngle = currentWheelAngle;
-        }
-
-        drawWheel();
-
-        if (progress < 1) {
-          requestAnimationFrame(animateWheel);
-        } else {
-          isSpinning = false;
-          wonPrize = PRIZES[targetIndex];
-          handleSpinComplete(wonPrize);
-        }
-      }
-
-      requestAnimationFrame(animateWheel);
-    }
-
-    function handleSpinComplete(prize) {
-      playToneSound('win');
-
-      // Confetti burst
-      if (typeof confetti === 'function') {
-        confetti({
-          particleCount: 120,
-          spread: 70,
-          origin: { y: 0.6 }
-        });
-      }
-
-      // Collect complete submission payload
-      const customHobby = document.getElementById('customHobbyInput').value.trim();
-      const hobbiesList = Array.from(selectedHobbies);
-      if (customHobby) hobbiesList.push(customHobby);
-
-      const submissionData = {
-        name: document.getElementById('custName').value.trim(),
-        phone: document.getElementById('custPhone').value.trim(),
-        province: document.getElementById('custProvince').value,
-        weekend: selectedWeekend,
-        hobbies: hobbiesList.join(', '),
-        idealTemp: `${currentTemp}°C`,
-        prizeWon: prize.text,
-        timestamp: new Date().toISOString()
-      };
-
-      // Save to memory
-      collectedEntries.push(submissionData);
-
-      // Populate Success Screen fields
-      document.getElementById('rewardTitle').textContent = prize.text;
-      document.getElementById('rewardCustomerName').textContent = submissionData.name;
-      document.getElementById('rewardCustomerPhone').textContent = submissionData.phone;
-      document.getElementById('rewardCustomerProvince').textContent = submissionData.province;
-      document.getElementById('rewardCode').textContent = `CR-${Math.random().toString(36).substring(2, 7).toUpperCase()}-COOL`;
-
-      setTimeout(() => {
-        goToStep(5);
-        sendDataToGoogleDrive(submissionData);
-      }, 1200);
-    }
-
-    /* ==========================================================
-       7. GOOGLE DRIVE / SHEETS SYNC (WEBHOOK SCRIPT)
-       ========================================================== */
-    function sendDataToGoogleDrive(payload) {
-      const savedUrl = localStorage.getItem('carrier_google_script_url');
-      const statusBox = document.getElementById('driveStatusBox');
-      const statusText = document.getElementById('driveStatusText');
-      const statusBadge = document.getElementById('driveStatusBadge');
-
-      if (!savedUrl) {
-        statusText.innerHTML = "บันทึกในหน่วยความจำเรียบร้อย <span class='text-carrier-blue underline cursor-pointer' onclick='openSettingsModal()'>คลิกที่นี่เพื่อต่อ Google Drive</span>";
-        statusBadge.className = "bg-sky-100 text-carrier-blue text-[10px] px-2 py-0.5 rounded-full font-semibold";
-        statusBadge.textContent = "Saved Locally";
-        return;
-      }
-
-      statusText.textContent = "กำลังส่งข้อมูลไปยัง Google Sheets...";
-      statusBadge.className = "bg-amber-100 text-amber-800 text-[10px] px-2 py-0.5 rounded-full font-semibold";
-      statusBadge.textContent = "Sending...";
-
-      // Standard Google Apps Script Web App call
-      fetch(savedUrl, {
-        method: 'POST',
-        mode: 'no-cors', // Standard for Google Web Apps deployed without CORS proxy
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(payload)
-      })
-      .then(() => {
-        statusText.textContent = "บันทึกข้อมูลเข้าสู่ Google Sheets ใน Google Drive เรียบร้อยแล้ว!";
-        statusBadge.className = "bg-emerald-100 text-emerald-800 text-[10px] px-2 py-0.5 rounded-full font-semibold";
-        statusBadge.textContent = "Google Drive Synced";
-      })
-      .catch((err) => {
-        console.error("Google sync issue:", err);
-        statusText.textContent = "บันทึกข้อมูลในเครื่องแล้ว (การส่งเข้า Google Drive ล้มเหลว กรุณาตรวจสอบ URL)";
-        statusBadge.className = "bg-rose-100 text-rose-800 text-[10px] px-2 py-0.5 rounded-full font-semibold";
-        statusBadge.textContent = "Sync Error";
-      });
-    }
-
-    function openSettingsModal() {
-      playToneSound('click');
-      const savedUrl = localStorage.getItem('carrier_google_script_url') || '';
-      document.getElementById('googleScriptUrl').value = savedUrl;
-      document.getElementById('settingsModal').classList.remove('hidden');
-    }
-
-    function closeSettingsModal() {
-      playToneSound('click');
-      document.getElementById('settingsModal').classList.add('hidden');
-    }
-
-    function saveGoogleScriptUrl() {
-      const url = document.getElementById('googleScriptUrl').value.trim();
-      if (url) {
-        localStorage.setItem('carrier_google_script_url', url);
-        showToast("บันทึก URL สำเร็จ", "ระบบจะส่งข้อมูลแบบสอบถามไปยัง Google Sheet นี้อัตโนมัติ", "success");
-      } else {
-        localStorage.removeItem('carrier_google_script_url');
-        showToast("ล้าง URL เรียบร้อย", "ระบบจะบันทึกข้อมูลไว้ในหน่วยความจำของหน้าเว็บ", "info");
-      }
-      closeSettingsModal();
-    }
-
-    function copyScriptCode() {
-      const snippet = document.getElementById('appsScriptSnippet').innerText;
-      const tempTextArea = document.createElement('textarea');
-      tempTextArea.value = snippet;
-      document.body.appendChild(tempTextArea);
-      tempTextArea.select();
-      try {
-        document.execCommand('copy');
-        document.getElementById('copyBtnText').textContent = "คัดลอกเรียบร้อย!";
-        setTimeout(() => {
-          document.getElementById('copyBtnText').textContent = "คัดลอกโค้ด";
-        }, 2000);
-        showToast("คัดลอกสำเร็จ", "นำโค้ดไปวางใน Google Apps Script ได้เลย", "success");
+        data = JSON.parse(e.postData.contents);
       } catch (err) {
-        showToast("คัดลอกไม่สำเร็จ", "โปรดลากคลุมข้อความแล้วกด Ctrl+C", "error");
+        data = e.parameter || {};
       }
-      document.body.removeChild(tempTextArea);
+    } else if (e && e.parameter) {
+      data = e.parameter;
     }
 
-    /* ==========================================================
-       8. CSV BACKUP DOWNLOAD
-       ========================================================== */
-    function downloadCSVBackup() {
-      if (collectedEntries.length === 0) {
-        showToast("ไม่มีข้อมูล", "ยังไม่มีข้อมูลผู้ร่วมสนุกในรอบนี้", "info");
-        return;
-      }
-      playToneSound('click');
+    // กำหนดรูปแบบวัน-เวลาของประเทศไทย (GMT+7)
+    var timestamp = Utilities.formatDate(new Date(), "GMT+7", "dd/MM/yyyy HH:mm:ss");
 
-      const headers = ["Timestamp", "Name", "Phone", "Province", "Weekend_Activity", "Hobbies", "Ideal_Temp", "Prize_Won"];
-      const rows = collectedEntries.map(e => [
-        `"${e.timestamp}"`,
-        `"${e.name}"`,
-        `"${e.phone}"`,
-        `"${e.province}"`,
-        `"${e.weekend}"`,
-        `"${e.hobbies}"`,
-        `"${e.idealTemp}"`,
-        `"${e.prizeWon}"`
-      ]);
-
-      const csvContent = "\uFEFF" + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.setAttribute('href', url);
-      link.setAttribute('download', `Carrier_Survey_Data_${Date.now()}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-
-      showToast("ดาวน์โหลดไฟล์แล้ว", "ไฟล์ CSV ถูกบันทึกลงในเครื่องของคุณเรียบร้อย", "success");
+    // จัดการเบอร์โทรศัพท์: ใส่เครื่องหมาย ' นำหน้า ป้องกันไม่ให้ Google Sheets ตัดเลข 0 ด้านหน้าทิ้ง
+    var rawPhone = data.phone ? String(data.phone).trim() : "-";
+    var formattedPhone = rawPhone;
+    if (formattedPhone !== "-" && !formattedPhone.startsWith("'")) {
+      formattedPhone = "'" + formattedPhone;
     }
 
-    /* ==========================================================
-       9. RESET / RESTART GAME
-       ========================================================== */
-    function restartGame() {
-      document.getElementById('customerForm').reset();
-      selectedWeekend = "";
-      selectedHobbies.clear();
-      document.getElementById('selectedWeekend').value = "";
-      document.getElementById('customHobbyInput').value = "";
+    // จัดเตรียมแถวข้อมูลที่จะบันทึก
+    var newRow = [
+      timestamp,
+      data.name || "-",
+      formattedPhone,
+      data.province || "-",
+      data.weekend || "-",
+      data.hobbies || "-",
+      data.idealTemp || "-",
+      data.prizeWon || "-",
+      data.couponCode || "-"
+    ];
 
-      document.querySelectorAll('.weekend-card').forEach(c => {
-        c.classList.remove('border-carrier-sky', 'bg-carrier-ice/40', 'ring-2', 'ring-carrier-sky');
-      });
+    sheet.appendRow(newRow);
 
-      document.querySelectorAll('.hobby-pill').forEach(p => {
-        p.classList.remove('bg-carrier-blue', 'text-white', 'border-carrier-blue');
-        p.classList.add('bg-white', 'text-slate-700', 'border-slate-200');
-      });
+    // จัดกึ่งกลางสำหรับคอลัมน์สำคัญ (วันที่, เบอร์โทร, จังหวัด, อุณหภูมิ, รหัสคูปอง)
+    var lastRow = sheet.getLastRow();
+    sheet.getRange(lastRow, 1).setHorizontalAlignment("center"); // วันที่
+    sheet.getRange(lastRow, 3).setHorizontalAlignment("center"); // เบอร์โทร
+    sheet.getRange(lastRow, 4).setHorizontalAlignment("center"); // จังหวัด
+    sheet.getRange(lastRow, 7).setHorizontalAlignment("center"); // อุณหภูมิ
+    sheet.getRange(lastRow, 9).setHorizontalAlignment("center"); // รหัสคูปอง
 
-      const spinBtn = document.getElementById('spinBtn');
-      spinBtn.disabled = false;
-      spinBtn.classList.remove('opacity-50', 'cursor-not-allowed');
-      document.getElementById('spinStatusText').textContent = "กดปุ่ม SPIN ตรงกลางเพื่อเริ่มต้นสุ่มรางวัล";
+    // ส่ง Response กลับไปยังหน้าเว็บว่าบันทึกเรียบร้อย
+    return ContentService.createTextOutput(JSON.stringify({
+      result: "success",
+      row: lastRow,
+      timestamp: timestamp
+    })).setMimeType(ContentService.MimeType.JSON);
 
-      goToStep(1);
-    }
+  } catch (error) {
+    // ดักจับข้อผิดพลาดและส่งรายงานกลับ
+    return ContentService.createTextOutput(JSON.stringify({
+      result: "error",
+      message: error.toString()
+    })).setMimeType(ContentService.MimeType.JSON);
 
-    /* ==========================================================
-       10. TOAST NOTIFICATIONS (NO BROWSER ALERT)
-       ========================================================== */
-    let toastTimeout = null;
-    function showToast(title, message, type = 'info') {
-      const toast = document.getElementById('toastNotification');
-      const icon = document.getElementById('toastIcon');
-      const toastTitle = document.getElementById('toastTitle');
-      const toastMessage = document.getElementById('toastMessage');
-
-      toastTitle.textContent = title;
-      toastMessage.textContent = message;
-
-      if (type === 'error') {
-        icon.className = "text-xl text-rose-400 mt-0.5";
-        icon.innerHTML = '<i class="fa-solid fa-circle-exclamation"></i>';
-      } else if (type === 'success') {
-        icon.className = "text-xl text-emerald-400 mt-0.5";
-        icon.innerHTML = '<i class="fa-solid fa-circle-check"></i>';
-      } else {
-        icon.className = "text-xl text-carrier-accent mt-0.5";
-        icon.innerHTML = '<i class="fa-solid fa-circle-info"></i>';
-      }
-
-      toast.classList.remove('hidden');
-
-      if (toastTimeout) clearTimeout(toastTimeout);
-      toastTimeout = setTimeout(() => {
-        hideToast();
-      }, 4000);
-    }
-
-    function hideToast() {
-      document.getElementById('toastNotification').classList.add('hidden');
-    }
-
-    /* ==========================================================
-       11. INITIALIZATION ON WINDOW LOAD
-       ========================================================== */
-    window.addEventListener('DOMContentLoaded', () => {
-      // Populate Thai Provinces dropdown
-      const provSelect = document.getElementById('custProvince');
-      THAI_PROVINCES.forEach(p => {
-        const opt = document.createElement('option');
-        opt.value = p;
-        opt.textContent = p;
-        provSelect.appendChild(opt);
-      });
-
-      // Initial draw of Lucky Wheel
-      drawWheel();
-    });
-  </script>
-</body>
-</html>
+  } finally {
+    // ปลดล็อกคิวเสมอ เพื่อให้รายการถัดไปทำงานต่อได้
+    lock.releaseLock();
+  }
+}
